@@ -25,18 +25,17 @@ vintf::Transport getTransportFromManifest(
 vintf::Transport getTransport(const std::string &interfaceName, const std::string &instanceName) {
     FQName fqName(interfaceName);
     if (!fqName.isValid()) {
-        LOG(ERROR) << __FUNCTION__ << ": " << interfaceName
-                   << " is not a valid fully-qualified name ";
+        LOG(DEBUG) << "getTransport: " << interfaceName << " is not a valid fully-qualified name.";
         return vintf::Transport::EMPTY;
     }
     if (!fqName.hasVersion()) {
-        LOG(ERROR) << __FUNCTION__ << ": " << fqName.string()
-                   << " does not specify a version.";
+        LOG(DEBUG) << "getTransport: " << fqName.string()
+                   << " does not specify a version. Using default transport.";
         return vintf::Transport::EMPTY;
     }
     if (fqName.name().empty()) {
-        LOG(ERROR) << __FUNCTION__ << ": " << fqName.string()
-                   << " does not specify an interface name.";
+        LOG(DEBUG) << "getTransport: " << fqName.string()
+                   << " does not specify an interface name. Using default transport.";
         return vintf::Transport::EMPTY;
     }
 
@@ -51,9 +50,9 @@ vintf::Transport getTransport(const std::string &interfaceName, const std::strin
         return tr;
     }
 
-    LOG(WARNING) << __FUNCTION__ << ": Cannot find entry "
-                 << fqName.string() << "/" << instanceName
-                 << " in either framework or device manifest.";
+    LOG(WARNING) << "getTransportFromManifest: Cannot find entry "
+                 << fqName.string()
+                 << " in either framework or device manifest, using default transport.";
     return vintf::Transport::EMPTY;
 }
 

@@ -6,7 +6,6 @@
 #include <android-base/logging.h>
 #include <hwbinder/IPCThreadState.h>
 #include <hidl/HidlSupport.h>
-#include <hidl/HidlTransportSupport.h>
 #include <regex>
 #include <sstream>
 
@@ -15,6 +14,7 @@ using android::hardware::IPCThreadState;
 namespace android {
 namespace hidl {
 namespace manager {
+namespace V1_0 {
 namespace implementation {
 
 static constexpr uint64_t kServiceDiedCookie = 0;
@@ -51,7 +51,7 @@ void ServiceManager::forEachServiceEntry(std::function<void(const HidlService *)
 void ServiceManager::serviceDied(uint64_t cookie, const wp<IBase>& who) {
     switch (cookie) {
         case kServiceDiedCookie:
-            removeService(who);
+            remove(who);
             break;
         case kPackageListenerDiedCookie:
             removePackageListener(who);
@@ -132,30 +132,15 @@ void ServiceManager::PackageInterfaceMap::addPackageListener(sp<IServiceNotifica
 }
 
 bool ServiceManager::PackageInterfaceMap::removePackageListener(const wp<IBase>& who) {
-    using ::android::hardware::interfacesEqual;
-
     bool found = false;
 
     for (auto it = mPackageListeners.begin(); it != mPackageListeners.end();) {
-        if (interfacesEqual(*it, who.promote())) {
+        if (*it == who) {
             it = mPackageListeners.erase(it);
             found = true;
         } else {
             ++it;
         }
-    }
-
-    return found;
-}
-
-bool ServiceManager::PackageInterfaceMap::removeServiceListener(const wp<IBase>& who) {
-    using ::android::hardware::interfacesEqual;
-
-    bool found = false;
-
-    for (auto &servicePair : getInstanceMap()) {
-        const std::unique_ptr<HidlService> &service = servicePair.second;
-        found |= service->removeListener(who);
     }
 
     return found;
@@ -194,7 +179,6 @@ Return<bool> ServiceManager::add(const hidl_string& name, const sp<IBase>& servi
     // TODO(b/34235311): use HIDL way to determine this
     // also, this assumes that the PID that is registering is the pid that is the service
     pid_t pid = IPCThreadState::self()->getCallingPid();
-    auto context = mAcl.getContext(pid);
 
     auto ret = service->interfaceChain([&](const auto &interfaceChain) {
         if (interfaceChain.size() == 0) {
@@ -205,7 +189,7 @@ Return<bool> ServiceManager::add(const hidl_string& name, const sp<IBase>& servi
         for(size_t i = 0; i < interfaceChain.size(); i++) {
             std::string fqName = interfaceChain[i];
 
-            if (!mAcl.canAdd(fqName, context, pid)) {
+            if (!mAcl.canAdd(fqName, pid)) {
                 return;
             }
         }
@@ -366,42 +350,6 @@ Return<bool> ServiceManager::registerForNotifications(const hidl_string& fqName,
     return true;
 }
 
-Return<bool> ServiceManager::unregisterForNotifications(const hidl_string& fqName,
-                                                        const hidl_string& name,
-                                                        const sp<IServiceNotification>& callback) {
-    if (callback == nullptr) {
-        LOG(ERROR) << "Cannot unregister null callback for " << fqName << "/" << name;
-        return false;
-    }
-
-    // NOTE: don't need ACL since callback is binder token, and if someone has gotten it,
-    // then they already have access to it.
-
-    if (fqName.empty()) {
-        bool success = false;
-        success |= removePackageListener(callback);
-        success |= removeServiceListener(callback);
-        return success;
-    }
-
-    PackageInterfaceMap &ifaceMap = mServiceMap[fqName];
-
-    if (name.empty()) {
-        bool success = false;
-        success |= ifaceMap.removePackageListener(callback);
-        success |= ifaceMap.removeServiceListener(callback);
-        return success;
-    }
-
-    HidlService *service = ifaceMap.lookup(name);
-
-    if (service == nullptr) {
-        return false;
-    }
-
-    return service->removeListener(callback);
-}
-
 Return<void> ServiceManager::debugDump(debugDump_cb _cb) {
     pid_t pid = IPCThreadState::self()->getCallingPid();
     if (!mAcl.canList(pid)) {
@@ -464,16 +412,14 @@ Return<void> ServiceManager::registerPassthroughClient(const hidl_string &fqName
     return Void();
 }
 
-bool ServiceManager::removeService(const wp<IBase>& who) {
-    using ::android::hardware::interfacesEqual;
-
+bool ServiceManager::remove(const wp<IBase>& who) {
     bool found = false;
     for (auto &interfaceMapping : mServiceMap) {
         auto &instanceMap = interfaceMapping.second.getInstanceMap();
 
         for (auto &servicePair : instanceMap) {
             const std::unique_ptr<HidlService> &service = servicePair.second;
-            if (interfacesEqual(service->getService(), who.promote())) {
+            if (service->getService() == who) {
                 service->setService(nullptr, static_cast<pid_t>(IServiceManager::PidConstant::NO_PID));
                 found = true;
             }
@@ -495,13 +441,17 @@ bool ServiceManager::removePackageListener(const wp<IBase>& who) {
 bool ServiceManager::removeServiceListener(const wp<IBase>& who) {
     bool found = false;
     for (auto &interfaceMapping : mServiceMap) {
-        auto &packageInterfaceMap = interfaceMapping.second;
+        auto &instanceMap = interfaceMapping.second.getInstanceMap();
 
-        found |= packageInterfaceMap.removeServiceListener(who);
+        for (auto &servicePair : instanceMap) {
+            const std::unique_ptr<HidlService> &service = servicePair.second;
+            found |= service->removeListener(who);
+        }
     }
     return found;
 }
-}  // namespace implementation
+} // namespace implementation
+}  // namespace V1_0
 }  // namespace manager
 }  // namespace hidl
 }  // namespace android

@@ -16,7 +16,6 @@ struct audit_data {
 };
 
 using android::FQName;
-using Context = AccessControl::Context;
 
 AccessControl::AccessControl() {
     mSeHandle = selinux_android_hw_service_context_handle();
@@ -35,7 +34,7 @@ AccessControl::AccessControl() {
     selinux_set_callback(SELINUX_CB_LOG, mSeCallbacks);
 }
 
-bool AccessControl::canAdd(const std::string& fqName, const Context &context, pid_t pid) {
+bool AccessControl::canAdd(const std::string& fqName, pid_t pid) {
     FQName fqIface(fqName);
 
     if (!fqIface.isValid()) {
@@ -43,7 +42,7 @@ bool AccessControl::canAdd(const std::string& fqName, const Context &context, pi
     }
     const std::string checkName = fqIface.package() + "::" + fqIface.name();
 
-    return checkPermission(context, pid, kPermissionAdd, checkName.c_str());
+    return checkPermission(pid, kPermissionAdd, checkName.c_str());
 }
 
 bool AccessControl::canGet(const std::string& fqName, pid_t pid) {
@@ -54,42 +53,36 @@ bool AccessControl::canGet(const std::string& fqName, pid_t pid) {
     }
     const std::string checkName = fqIface.package() + "::" + fqIface.name();
 
-    return checkPermission(getContext(pid), pid, kPermissionGet, checkName.c_str());
+    return checkPermission(pid, kPermissionGet, checkName.c_str());
 }
 
 bool AccessControl::canList(pid_t pid) {
-    return checkPermission(getContext(pid), pid, mSeContext, kPermissionList, nullptr);
+    return checkPermission(pid, mSeContext, kPermissionList, nullptr);
 }
 
-Context AccessControl::getContext(pid_t sourcePid) {
+bool AccessControl::checkPermission(pid_t sourcePid, const char *targetContext,
+                                    const char *perm, const char *interface) {
     char *sourceContext = NULL;
-
-    if (getpidcon(sourcePid, &sourceContext) < 0) {
-        ALOGE("SELinux: failed to retrieve process context for pid %d", sourcePid);
-        return Context(nullptr, freecon);
-    }
-
-    return Context(sourceContext, freecon);
-}
-
-bool AccessControl::checkPermission(const Context &context, pid_t sourceAuditPid, const char *targetContext, const char *perm, const char *interface) {
-    if (context == nullptr) {
-        return false;
-    }
-
     bool allowed = false;
     struct audit_data ad;
 
-    ad.pid = sourceAuditPid;
+    if (getpidcon(sourcePid, &sourceContext) < 0) {
+        ALOGE("SELinux: failed to retrieved process context for pid %d", sourcePid);
+        return false;
+    }
+
+    ad.pid = sourcePid;
     ad.interfaceName = interface;
 
-    allowed = (selinux_check_access(context.get(), targetContext, "hwservice_manager",
+    allowed = (selinux_check_access(sourceContext, targetContext, "hwservice_manager",
                                     perm, (void *) &ad) == 0);
+
+    freecon(sourceContext);
 
     return allowed;
 }
 
-bool AccessControl::checkPermission(const Context &context, pid_t sourceAuditPid, const char *perm, const char *interface) {
+bool AccessControl::checkPermission(pid_t sourcePid, const char *perm, const char *interface) {
     char *targetContext = NULL;
     bool allowed = false;
 
@@ -99,7 +92,7 @@ bool AccessControl::checkPermission(const Context &context, pid_t sourceAuditPid
         return false;
     }
 
-    allowed = checkPermission(context, sourceAuditPid, targetContext, perm, interface);
+    allowed = checkPermission(sourcePid, targetContext, perm, interface);
 
     freecon(targetContext);
 

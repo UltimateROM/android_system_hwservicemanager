@@ -127,6 +127,7 @@ TokenManager::TokenInterface TokenManager::generateToken(const sp<IBase> &interf
     return { interface, token };
 }
 
+// static
 __attribute__((optnone))
 bool TokenManager::constantTimeCompare(const hidl_vec<uint8_t> &t1, const hidl_vec<uint8_t> &t2) {
     if (t1.size() != t2.size()) {
@@ -141,6 +142,7 @@ bool TokenManager::constantTimeCompare(const hidl_vec<uint8_t> &t1, const hidl_v
     return x == 0;
 }
 
+// static
 uint64_t TokenManager::getTokenId(const hidl_vec<uint8_t> &token) {
     if (token.size() < ID_SIZE) {
         return TOKEN_ID_NONE;
@@ -154,6 +156,7 @@ uint64_t TokenManager::getTokenId(const hidl_vec<uint8_t> &token) {
     return id;
 }
 
+// static
 hidl_vec<uint8_t> TokenManager::getToken(const uint64_t id, const uint8_t *hmac, uint64_t hmacSize) {
     hidl_vec<uint8_t> token;
     token.resize(ID_SIZE + hmacSize);
